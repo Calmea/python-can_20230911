@@ -85,7 +85,7 @@ try:
         boottimeEpoch = 0
     else:
         boottimeEpoch = uptime.boottime().timestamp()
-except ImportError as error:
+except ImportError:
     log.warning(
         "uptime library not available, timestamps are relative to boot time and not to Epoch UTC",
     )
@@ -283,7 +283,7 @@ class PcanBus(BusABC):
             clock_param = "f_clock" if "f_clock" in kwargs else "f_clock_mhz"
             fd_parameters_values = [
                 f"{key}={kwargs[key]}"
-                for key in (clock_param,) + PCAN_FD_PARAMETER_LIST
+                for key in (clock_param, *PCAN_FD_PARAMETER_LIST)
                 if key in kwargs
             ]
 
@@ -396,9 +396,7 @@ class PcanBus(BusABC):
             for b in bits(error):
                 stsReturn = self.m_objPCANBasic.GetErrorText(b, 0x9)
                 if stsReturn[0] != PCAN_ERROR_OK:
-                    text = "An error occurred. Error-code's text ({:X}h) couldn't be retrieved".format(
-                        error
-                    )
+                    text = f"An error occurred. Error-code's text ({error:X}h) couldn't be retrieved"
                 else:
                     text = stsReturn[1].decode("utf-8", errors="replace")
 
@@ -413,7 +411,7 @@ class PcanBus(BusABC):
     def get_api_version(self):
         error, value = self.m_objPCANBasic.GetValue(PCAN_NONEBUS, PCAN_API_VERSION)
         if error != PCAN_ERROR_OK:
-            raise CanInitializationError(f"Failed to read pcan basic api version")
+            raise CanInitializationError("Failed to read pcan basic api version")
 
         # fix https://github.com/hardbyte/python-can/issues/1642
         version_string = value.decode("ascii").replace(",", ".").replace(" ", "")
