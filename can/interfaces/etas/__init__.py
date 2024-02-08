@@ -18,8 +18,6 @@ class EtasBus(can.BusABC):
         data_bitrate: int = 2000000,
         **kwargs: Dict[str, any],
     ):
-        super().__init__(channel=channel, **kwargs)
-
         self.receive_own_messages = receive_own_messages
         self._can_protocol = can.CanProtocol.CAN_FD if fd else can.CanProtocol.CAN_20
 
@@ -118,6 +116,9 @@ class EtasBus(can.BusABC):
         self.timeOffset = time.time() - (float(now.value) / self.tickFrequency)
 
         self.channel_info = channel
+
+        # Super call must be after child init since super calls set_filters
+        super().__init__(channel=channel, **kwargs)
 
     def _recv_internal(
         self, timeout: Optional[float]
@@ -228,10 +229,10 @@ class EtasBus(can.BusABC):
 
         self._oci_filters = (ctypes.POINTER(OCI_CANRxFilterEx) * len(filters))()
 
-        for i, filter in enumerate(filters):
+        for i, filter_ in enumerate(filters):
             f = OCI_CANRxFilterEx()
-            f.frameIDValue = filter["can_id"]
-            f.frameIDMask = filter["can_mask"]
+            f.frameIDValue = filter_["can_id"]
+            f.frameIDMask = filter_["can_mask"]
             f.tag = 0
             f.flagsValue = 0
             if self.receive_own_messages:
@@ -240,7 +241,7 @@ class EtasBus(can.BusABC):
             else:
                 # enable the SR bit in the mask. since the bit is 0 in flagsValue -> do not self-receive
                 f.flagsMask = OCI_CAN_MSG_FLAG_SELFRECEPTION
-            if filter.get("extended"):
+            if filter_.get("extended"):
                 f.flagsValue |= OCI_CAN_MSG_FLAG_EXTENDED
                 f.flagsMask |= OCI_CAN_MSG_FLAG_EXTENDED
             self._oci_filters[i].contents = f

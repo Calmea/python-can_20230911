@@ -1,5 +1,18 @@
-Version 4.3.0rc0
-===========
+Version 4.3.1
+=============
+
+Bug Fixes
+---------
+* Fix socketcand erroneously discarding frames (#1700)
+* Fix initialization order in EtasBus (#1693, #1704)
+
+Documentation
+-------------
+* Fix install instructions for neovi (#1694, #1697)
+
+
+Version 4.3.0
+=============
 
 Breaking Changes
 ----------------

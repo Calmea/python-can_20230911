@@ -7,9 +7,8 @@ Example .asc files:
 """
 import logging
 import re
-import time
 from datetime import datetime
-from typing import Any, Dict, Generator, List, Optional, TextIO, Union
+from typing import Any, Dict, Final, Generator, List, Optional, TextIO, Union
 
 from ..message import Message
 from ..typechecking import StringPathLike
@@ -20,6 +19,14 @@ CAN_MSG_EXT = 0x80000000
 CAN_ID_MASK = 0x1FFFFFFF
 BASE_HEX = 16
 BASE_DEC = 10
+ASC_TRIGGER_REGEX: Final = re.compile(
+    r"begin\s+triggerblock\s+\w+\s+(?P<datetime_string>.+)", re.IGNORECASE
+)
+ASC_MESSAGE_REGEX: Final = re.compile(
+    r"\d+\.\d+\s+(\d+\s+(\w+\s+(Tx|Rx)|ErrorFrame)|CANFD)",
+    re.ASCII | re.IGNORECASE,
+)
+
 
 logger = logging.getLogger("can.io.asc")
 
@@ -258,12 +265,7 @@ class ASCReader(TextIOMessageReader):
         for _line in self.file:
             line = _line.strip()
 
-            trigger_match = re.match(
-                r"begin\s+triggerblock\s+\w+\s+(?P<datetime_string>.+)",
-                line,
-                re.IGNORECASE,
-            )
-            if trigger_match:
+            if trigger_match := ASC_TRIGGER_REGEX.match(line):
                 datetime_str = trigger_match.group("datetime_string")
                 self.start_time = (
                     0.0
@@ -272,11 +274,7 @@ class ASCReader(TextIOMessageReader):
                 )
                 continue
 
-            if not re.match(
-                r"\d+\.\d+\s+(\d+\s+(\w+\s+(Tx|Rx)|ErrorFrame)|CANFD)",
-                line,
-                re.ASCII | re.IGNORECASE,
-            ):
+            if not ASC_MESSAGE_REGEX.match(line):
                 # line might be a comment, chip status,
                 # J1939 message or some other unsupported event
                 continue
@@ -341,8 +339,7 @@ class ASCWriter(TextIOMessageWriter):
             "{bit_timing_conf_ext_data:>8}",
         ]
     )
-    FORMAT_START_OF_FILE_DATE = "%a %b %d %I:%M:%S.%f %p %Y"
-    FORMAT_DATE = "%a %b %d %I:%M:%S.{} %p %Y"
+    FORMAT_DATE = "%a %b %d %H:%M:%S.{} %Y"
     FORMAT_EVENT = "{timestamp: 9.6f} {message}\n"
 
     def __init__(
@@ -368,12 +365,8 @@ class ASCWriter(TextIOMessageWriter):
         self.channel = channel
 
         # write start of file header
-        now = datetime.now().strftime(self.FORMAT_START_OF_FILE_DATE)
-        # Note: CANoe requires that the microsecond field only have 3 digits
-        idx = now.index(".")  # Find the index in the string of the decimal
-        # Keep decimal and first three ms digits (4), remove remaining digits
-        now = now.replace(now[idx + 4 : now[idx:].index(" ") + idx], "")
-        self.file.write(f"date {now}\n")
+        start_time = self._format_header_datetime(datetime.now())
+        self.file.write(f"date {start_time}\n")
         self.file.write("base hex  timestamps absolute\n")
         self.file.write("internal events logged\n")
 
@@ -381,6 +374,15 @@ class ASCWriter(TextIOMessageWriter):
         self.header_written = False
         self.last_timestamp = 0.0
         self.started = 0.0
+
+    def _format_header_datetime(self, dt: datetime) -> str:
+        # Note: CANoe requires that the microsecond field only have 3 digits
+        # Since Python strftime only supports microsecond formatters, we must
+        # manually include the millisecond portion before passing the format
+        # to strftime
+        msec = dt.microsecond // 1000 % 1000
+        format_w_msec = self.FORMAT_DATE.format(msec)
+        return dt.strftime(format_w_msec)
 
     def stop(self) -> None:
         # This is guaranteed to not be None since we raise ValueError in __init__
@@ -401,12 +403,11 @@ class ASCWriter(TextIOMessageWriter):
 
         # this is the case for the very first message:
         if not self.header_written:
-            self.last_timestamp = timestamp or 0.0
-            self.started = self.last_timestamp
-            mlsec = repr(self.last_timestamp).split(".")[1][:3]
-            formatted_date = time.strftime(
-                self.FORMAT_DATE.format(mlsec), time.localtime(self.last_timestamp)
-            )
+            self.started = self.last_timestamp = timestamp or 0.0
+
+            start_time = datetime.fromtimestamp(self.last_timestamp)
+            formatted_date = self._format_header_datetime(start_time)
+
             self.file.write(f"Begin Triggerblock {formatted_date}\n")
             self.header_written = True
             self.log_event("Start of measurement")  # caution: this is a recursive call!
